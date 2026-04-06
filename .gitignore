@@ -1,0 +1,13 @@
+# Node dependencies
+/node_modules
+
+# Build files
+/build
+target/
+
+# Cache
+/.pytest_cache
+__pycache__/
+
+# LLMs
+CLAUDE.local.md

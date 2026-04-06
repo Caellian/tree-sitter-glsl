@@ -1,0 +1,19 @@
+name: Missing extension
+description: Request support for a GLSL extension
+labels: [extension, grammar]
+title: "[Extension]: support GL_KHR_..."
+body:
+  - type: input
+    id: spec-link
+    attributes:
+      label: Specification link
+      description: Link to the extension spec on the Khronos registry or GitHub.
+      placeholder: https://github.com/KhronosGroup/GLSL/blob/main/extensions/...
+    validations:
+      required: true
+
+  - type: textarea
+    id: additions
+    attributes:
+      label: What it adds
+      description: Types, keywords, built-in functions/variables, new syntax, or a combination. Listing them exactly makes them easier to add.

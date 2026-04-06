@@ -1,0 +1,89 @@
+name: Sync specification submodule
+
+on:
+  schedule:
+    - cron: "0 6 1 * *" # Monthly, 1st at 6am UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync:
+    name: Fast-forward specification
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{github.token}}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Fetch upstream
+        run: cd specification && git fetch origin
+
+      - name: Check for existing issue
+        id: existing
+        run: |
+          RESULT=$(bash .github/scripts/find_last_reported_spec_change.sh)
+          if [ -n "$RESULT" ]; then
+            echo "issue=$(echo "$RESULT" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+            echo "last_target=$(echo "$RESULT" | cut -d' ' -f2)" >> "$GITHUB_OUTPUT"
+            echo "Found existing issue #$(echo "$RESULT" | cut -d' ' -f1)"
+          fi
+
+      - name: Check for updates
+        id: check
+        run: |
+          # If there's an existing issue, only check for NEW changes since
+          # the last reported target SHA
+          CHECK_BASE="${{steps.existing.outputs.last_target}}"
+          RESULT=$(bash .github/scripts/verify_spec_changed.sh ${CHECK_BASE:+"$CHECK_BASE"} 2>&1) && STATUS="$?" || STATUS="$?"
+
+          case "$STATUS" in
+            0)
+              if [ "$RESULT" = "up-to-date" ]; then
+                echo "action=none" >> "$GITHUB_OUTPUT"
+                echo "Already up to date"
+              elif [ -n "${{steps.existing.outputs.issue}}" ]; then
+                echo "action=none" >> "$GITHUB_OUTPUT"
+                echo "New changes are safe but issue #${{steps.existing.outputs.issue}} is still open — skipping auto-sync"
+              else
+                echo "action=sync" >> "$GITHUB_OUTPUT"
+                echo "Safe to fast-forward"
+              fi
+              ;;
+            1)
+              echo "action=issue" >> "$GITHUB_OUTPUT"
+              EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+              echo "template<<$EOF" >> "$GITHUB_OUTPUT"
+              echo "$RESULT" >> "$GITHUB_OUTPUT"
+              echo "$EOF" >> "$GITHUB_OUTPUT"
+              echo "::notice::Meaningful spec changes detected"
+              ;;
+          esac
+
+      - name: Fast-forward and commit
+        if: steps.check.outputs.action == 'sync'
+        run: |
+          cd specification
+          git merge --ff-only origin/main --quiet
+          cd ..
+          git add specification
+          SHORT_NEW=$(git -C specification rev-parse --short HEAD)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: sync specification submodule to $SHORT_NEW"
+          git push
+
+      - name: Create or update issue
+        if: steps.check.outputs.action == 'issue'
+        run: |
+          ISSUE="${{steps.existing.outputs.issue}}"
+          OLD_TARGET="${{steps.existing.outputs.last_target}}"
+          echo "${{steps.check.outputs.template}}" | bash .github/scripts/create_issue.sh ${ISSUE:+"$ISSUE"}
+          if [ -n "$ISSUE" ] && [ -n "$OLD_TARGET" ]; then
+            NEW_TARGET=$(cd specification && git rev-parse origin/main)
+            gh issue comment "$ISSUE" --body "Target updated from [\`${OLD_TARGET:0:7}\`](https://github.com/KhronosGroup/GLSL/commit/$OLD_TARGET) to [\`${NEW_TARGET:0:7}\`](https://github.com/KhronosGroup/GLSL/commit/$NEW_TARGET)."
+          fi

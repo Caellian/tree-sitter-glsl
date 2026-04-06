@@ -1,0 +1,68 @@
+name: Dismiss specification change
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  dismiss:
+    name: Fast-forward dismissed spec change
+    if: >-
+      contains(github.event.issue.labels.*.name, 'specification') &&
+      contains(github.event.comment.body, '/fast-forward') &&
+      contains(fromJSON('["OWNER", "MEMBER"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{github.token}}
+    steps:
+      - name: Verify /fast-forward is a whole word
+        id: match
+        run: |
+          if echo "$BODY" | grep -qP '(^|[\s`])/fast-forward([\s`]|$)'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          BODY: ${{github.event.comment.body}}
+
+      - name: Acknowledge command
+        if: steps.match.outputs.found == 'true'
+        run: gh api repos/${{github.repository}}/issues/comments/${{github.event.comment.id}}/reactions -f content='+1'
+
+      - uses: actions/checkout@v4
+        if: steps.match.outputs.found == 'true'
+        with:
+          submodules: true
+
+      - name: Extract target SHA from issue
+        if: steps.match.outputs.found == 'true'
+        id: target
+        run: |
+          BODY=$(gh issue view ${{github.event.issue.number}} --json body --jq '.body')
+          SHA=$(echo "$BODY" | grep -oP 'KhronosGroup/GLSL/compare/[0-9a-f]+\.\.\.\K[0-9a-f]+' || true)
+          if [ -z "$SHA" ]; then
+            echo "::error::Could not extract target SHA from issue body"
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Fast-forward and commit
+        if: steps.match.outputs.found == 'true'
+        run: |
+          cd specification
+          git fetch origin
+          git checkout ${{steps.target.outputs.sha}} --quiet
+          cd ..
+          git add specification
+          SHORT=$(git -C specification rev-parse --short HEAD)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: sync specification submodule to $SHORT (dismissed)"
+          git push
+
+      - name: Close issue
+        if: steps.match.outputs.found == 'true'
+        run: gh issue close ${{github.event.issue.number}} --comment "Specification fast-forwarded to \`${{steps.target.outputs.sha}}\`."

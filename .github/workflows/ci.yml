@@ -1,0 +1,130 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    name: Grammar tests
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: tree-sitter/setup-action@v2
+        with:
+          install-lib: false
+      - uses: tree-sitter/parser-test-action@v2
+        with:
+          test-rust: true
+          test-node: true
+          test-python: true
+          test-go: true
+          test-swift: true
+          node-version: "22"
+
+  lint:
+    name: Lint & type check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx eslint
+      - run: npx tsc --noEmit
+
+  coverage:
+    name: Grammar coverage
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: tree-sitter/setup-action@v2
+        with:
+          install-lib: false
+      - run: npm ci
+      - run: npx tree-sitter generate
+      - name: Check coverage
+        run: |
+          output=$(node scripts/audit_node_types.js --coverage 2>&1)
+          echo "$output"
+          echo "### Coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo "$output" | grep -E '^\s+(Rule|Combination|Concrete)' >> "$GITHUB_STEP_SUMMARY"
+          if ! echo "$output" | grep -q 'Rule coverage:.*100.0%'; then
+            echo "::error::Rule coverage is not 100%"
+            exit 1
+          fi
+
+  bindings:
+    name: Test bindings
+    needs: [test, coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: tree-sitter/setup-action@v2
+        with:
+          install-lib: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - uses: swift-actions/setup-swift@v2
+      - run: npm ci
+      - run: npx tree-sitter generate
+      - name: Node
+        run: npm run test:bindings:node
+      - name: Rust
+        run: npm run test:bindings:rust
+      - name: Go
+        run: npm run test:bindings:go
+      - name: Python
+        run: |
+          pip install tree-sitter pytest
+          pip install -e .
+          npm run test:bindings:python
+      - name: Swift
+        run: npm run test:bindings:swift
+
+  publish:
+    name: Trigger publish
+    needs: bindings
+    if: github.event_name == 'push' && github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for version tag on this commit
+        env:
+          GH_TOKEN: ${{secrets.WORKFLOW_TOKEN}}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Trigger publish if tagged
+        env:
+          GH_TOKEN: ${{secrets.WORKFLOW_TOKEN}}
+        run: |
+          TAG=$(git tag --points-at "${{github.sha}}" | grep '^v' | head -1 || true)
+          if [ -n "$TAG" ]; then
+            echo "Found tag $TAG — triggering publish"
+            gh workflow run publish.yml --ref "$TAG"
+          fi

@@ -1,0 +1,53 @@
+name: Bug report
+description: Incorrect parse tree, missing syntax, or wrong highlighting
+labels: [bug]
+body:
+  - type: textarea
+    id: code
+    attributes:
+      label: Minimal GLSL code that triggers the issue
+      description: Minimal reproduction code.
+      render: glsl
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What's wrong?
+      description: Describe what you expected vs what happened. A parse tree or screenshot is preferred but not mandatory.
+    validations:
+      required: true
+
+  - type: input
+    id: version-ext
+    attributes:
+      label: GLSL version (and/or extensions)
+      placeholder: "#version 460 core, GL_EXT_..."
+
+  - type: dropdown
+    id: binding
+    attributes:
+      label: Binding
+      options:
+        - Node.js
+        - Rust
+        - Python
+        - Go
+        - Swift
+        - C/C++
+        - Other (Third Party)
+
+  - type: input
+    id: package-version
+    attributes:
+      label: tree-sitter-glsl-spec version
+      placeholder: "1.0.0"
+
+  - type: checkboxes
+    id: latest
+    attributes:
+      label: Version check
+      options:
+        - label: I'm using the latest version of the grammar
+          required: true

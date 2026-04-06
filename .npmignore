@@ -1,0 +1,38 @@
+# Build artifacts
+build/
+target/
+
+# Development
+.editorconfig
+.github/
+.gitmodules
+CMakeLists.txt
+Makefile
+Package.swift
+eslint.config.mjs
+tsconfig.json
+
+# Scripts and data files
+scripts/
+specification/
+builtin.js
+extensions.js
+keywords.js
+
+# Tests
+test/
+bindings/node/binding_test.js
+
+# Templates
+queries/*.in
+
+# Other bindings (shipped via their own registries)
+bindings/c/
+bindings/go/
+bindings/python/
+bindings/rust/
+bindings/swift/
+Cargo.toml
+Cargo.lock
+pyproject.toml
+setup.py

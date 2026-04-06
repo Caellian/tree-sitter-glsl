@@ -1,0 +1,30 @@
+[package]
+name = "tree-sitter-glsl-spec"
+description = "GLSL grammar for the tree-sitter parsing library"
+version = "0.0.0-dev"
+keywords = ["incremental", "parsing", "glsl"]
+categories = ["parsing", "text-editors"]
+repository = "https://github.com/Caellian/tree-sitter-glsl"
+edition = "2024"
+license = "MIT"
+authors = ["Tin Švagelj"]
+
+build = "bindings/rust/build.rs"
+include = [
+  "bindings/rust/*",
+  "grammar.js",
+  "queries/*.scm",
+  "src/*",
+]
+
+[lib]
+path = "bindings/rust/lib.rs"
+
+[dependencies]
+tree-sitter-language = "0.1.7"
+
+[dev-dependencies]
+tree-sitter = "0.26"
+
+[build-dependencies]
+cc = "1.2"

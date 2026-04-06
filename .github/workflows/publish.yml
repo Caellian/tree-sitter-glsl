@@ -1,0 +1,171 @@
+name: Publish package
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci-check:
+    name: Verify CI passed
+    runs-on: ubuntu-latest
+    outputs:
+      passed: ${{steps.check.outputs.passed}}
+    steps:
+      - name: Check CI status for this commit
+        id: check
+        env:
+          GH_TOKEN: ${{github.token}}
+        run: |
+          SHA="${{github.sha}}"
+          RESULT=$(gh api "repos/${{github.repository}}/commits/$SHA/check-runs" \
+            --jq '[.check_runs[] | select(.name == "Test bindings" and .conclusion == "success")] | length')
+          if [ "$RESULT" -eq 0 ]; then
+            echo "::warning::No successful CI run found for $SHA — skipping publish. CI will re-trigger this workflow when it passes."
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  set-version:
+    name: Set version from tag
+    needs: ci-check
+    if: needs.ci-check.outputs.passed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{steps.version.outputs.version}}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tree-sitter.json
+          sparse-checkout-cone-mode: false
+      - id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' is not a valid semver version"
+            exit 1
+          fi
+          TS_VERSION=$(python3 -c "import json; print(json.load(open('tree-sitter.json'))['metadata']['version'])")
+          if [[ "$VERSION" != "$TS_VERSION" ]]; then
+            echo "::error::Tag version ($VERSION) does not match tree-sitter.json ($TS_VERSION)"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  npm:
+    name: Publish to npm
+    needs: set-version
+    runs-on: ubuntu-latest
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/tree-sitter-glsl-spec
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org/
+      - run: npm version --no-git-tag-version "${{needs.set-version.outputs.version}}"
+      - run: npm install
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
+        run: npm publish 2>&1 | tee /tmp/npm-out; if grep -q 'previously published\|already exists' /tmp/npm-out; then echo "::notice::Version already published — skipping"; else grep -q 'npm notice' /tmp/npm-out; fi
+
+  crates:
+    name: Publish to crates.io
+    needs: set-version
+    runs-on: ubuntu-latest
+    environment:
+      name: crates
+      url: https://crates.io/crates/tree-sitter-glsl-spec
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+      - name: Set version
+        run: sed -i "/^\[package\]/,/^\[/{s/^version = \".*\"/version = \"${{needs.set-version.outputs.version}}\"/}" Cargo.toml
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{secrets.CRATES_TOKEN}}
+        run: cargo publish --allow-dirty 2>&1 | tee /tmp/cargo-out; if grep -q 'already uploaded' /tmp/cargo-out; then echo "::notice::Version already published — skipping"; else grep -q 'Uploading\|Published' /tmp/cargo-out; fi
+
+  pypi-build:
+    name: Build wheel (${{matrix.os}})
+    needs: set-version
+    runs-on: ${{matrix.os}}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-13]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set version
+        shell: python3 {0}
+        env:
+          VERSION: ${{needs.set-version.outputs.version}}
+        run: |
+          import os, re, pathlib
+          v = os.environ["VERSION"]
+          p = pathlib.Path("pyproject.toml")
+          t = p.read_text()
+          t = re.sub(r'(?m)(^version = ")[^"]*(")', rf'\g<1>{v}\2', t, count=1)
+          p.write_text(t)
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.16
+        with:
+          output-dir: dist
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          path: dist/*.whl
+          name: ${{matrix.os}}-wheels
+          retention-days: 2
+
+  pypi-publish:
+    name: Publish to PyPI
+    needs: pypi-build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/tree-sitter-glsl-spec/
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: "*-wheels"
+          merge-multiple: true
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1.8
+        with:
+          password: ${{secrets.PYPI_TOKEN}}
+
+  release:
+    name: Create GitHub release
+    needs: [npm, crates, pypi-publish]
+    if: always() && !contains(needs.*.result, 'cancelled')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{github.token}}
+        run: |
+          NOTES=$(bash .github/scripts/release_notes.sh "${{github.ref_name}}")
+          gh release create "${{github.ref_name}}" \
+            --repo "${{github.repository}}" \
+            --title "${{github.ref_name}}" \
+            --notes "$NOTES"

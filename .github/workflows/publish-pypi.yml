@@ -1,0 +1,68 @@
+name: Publish to PyPI
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to publish (e.g. 1.0.0)
+        required: true
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    name: Build wheel (${{matrix.os}})
+    runs-on: ${{matrix.os}}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Set version
+        shell: python3 {0}
+        env:
+          VERSION: ${{inputs.version}}
+        run: |
+          import os, re, pathlib
+          v = os.environ["VERSION"]
+          p = pathlib.Path("pyproject.toml")
+          t = p.read_text()
+          t = re.sub(r'(?m)(^version = ")[^"]*(")', rf'\g<1>{v}\2', t, count=1)
+          p.write_text(t)
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v3.4
+        with:
+          output-dir: dist
+      - name: Upload wheels
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/*.whl
+          name: ${{matrix.os}}-wheels
+          retention-days: 2
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/tree-sitter-glsl-spec/
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: "*-wheels"
+          merge-multiple: true
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.13.0

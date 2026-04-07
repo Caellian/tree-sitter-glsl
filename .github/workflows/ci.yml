@@ -3,7 +3,52 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - grammar.js
+      - keywords.js
+      - extensions.js
+      - builtin.js
+      - queries/**
+      - src/**
+      - bindings/**
+      - test/**
+      - package.json
+      - package-lock.json
+      - Cargo.toml
+      - Cargo.lock
+      - pyproject.toml
+      - setup.py
+      - tsconfig.json
+      - eslint.config.mjs
+      - binding.gyp
+      - Package.swift
+      - CMakeLists.txt
+      - Makefile
+      - tree-sitter.json
   pull_request:
+    paths:
+      - grammar.js
+      - keywords.js
+      - extensions.js
+      - builtin.js
+      - queries/**
+      - src/**
+      - bindings/**
+      - test/**
+      - package.json
+      - package-lock.json
+      - Cargo.toml
+      - Cargo.lock
+      - pyproject.toml
+      - setup.py
+      - tsconfig.json
+      - eslint.config.mjs
+      - binding.gyp
+      - Package.swift
+      - CMakeLists.txt
+      - Makefile
+      - tree-sitter.json
+  workflow_dispatch:
   workflow_call:
 
 jobs:
@@ -12,13 +57,11 @@ jobs:
     needs: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
-      - uses: tree-sitter/setup-action@v2
-        with:
-          install-lib: false
-      - uses: tree-sitter/parser-test-action@v2
+      - uses: tree-sitter/setup-action/cli@v2
+      - uses: tree-sitter/parser-test-action@v3
         with:
           test-rust: true
           test-node: true
@@ -31,8 +74,8 @@ jobs:
     name: Lint & type check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -45,16 +88,14 @@ jobs:
     needs: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: npm
-      - uses: tree-sitter/setup-action@v2
-        with:
-          install-lib: false
+      - uses: tree-sitter/setup-action/cli@v2
       - run: npm ci
       - run: npx tree-sitter generate
       - name: Check coverage
@@ -73,20 +114,18 @@ jobs:
     needs: [test, coverage]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: npm
-      - uses: tree-sitter/setup-action@v2
-        with:
-          install-lib: false
-      - uses: actions/setup-go@v5
+      - uses: tree-sitter/setup-action/cli@v2
+      - uses: actions/setup-go@v6
         with:
           go-version: "1.22"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.x"
       - uses: swift-actions/setup-swift@v2
@@ -115,7 +154,7 @@ jobs:
       - name: Check for version tag on this commit
         env:
           GH_TOKEN: ${{secrets.WORKFLOW_TOKEN}}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           fetch-tags: true

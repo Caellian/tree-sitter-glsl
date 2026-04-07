@@ -16,9 +16,10 @@ jobs:
     env:
       GH_TOKEN: ${{github.token}}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           submodules: true
+          token: ${{ secrets.WRITE_TOKEN }}
 
       - name: Fetch upstream
         run: cd specification && git fetch origin

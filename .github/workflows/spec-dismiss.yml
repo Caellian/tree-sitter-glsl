@@ -32,10 +32,11 @@ jobs:
         if: steps.match.outputs.found == 'true'
         run: gh api repos/${{github.repository}}/issues/comments/${{github.event.comment.id}}/reactions -f content='+1'
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         if: steps.match.outputs.found == 'true'
         with:
           submodules: true
+          token: ${{ secrets.WRITE_TOKEN }}
 
       - name: Extract target SHA from issue
         if: steps.match.outputs.found == 'true'
